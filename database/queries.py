@@ -104,3 +104,36 @@ class CRUD:
             result = conn.execute(select_stmt)
             count = result.rowcount
             return count
+
+    def export_to_excel(self, tablename: str):
+        filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.xlsx")
+        with pd.ExcelWriter(filename) as writer:
+            table = self.metadata.tables[tablename]
+            query = table.select()
+            df = pd.read_sql(query, self.engine)
+            df.to_excel(writer, sheet_name=tablename, index=False)
+            Logger.info(f"Export to Excel {filename}")
+
+    def export_to_csv(self, tablename: str):
+        filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.csv")
+        table = self.metadata.tables[tablename]
+        query = table.select()
+        df = pd.read_sql(query, self.engine)
+        df.to_csv(filename, index=False)
+        Logger.info(f"Export to CSV {filename}")
+
+    def export_to_txt(self, tablename: str):
+        filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.txt")
+        table = self.metadata.tables[tablename]
+        query = table.select()
+        df = pd.read_sql(query, self.engine)
+        df.to_csv(filename, index=False, sep='\t')
+        Logger.info(f"Export to TXT {filename}")
+
+    def export_to_json(self, tablename: str):
+        filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.json")
+        table = self.metadata.tables[tablename]
+        query = table.select()
+        df = pd.read_sql(query, self.engine)
+        df.to_json(filename, orient='records')
+        Logger.info(f"Export to JSON {filename}")

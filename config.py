@@ -13,6 +13,6 @@ BASE_PATH = os.path.abspath(os.path.dirname(__file__))
 # user configure
 EXPORT_DIR_NAME = os.path.join(BASE_PATH, "export")
 """
-support type: txt, excel, csv
+support type: txt, excel, csv, json
 """
-EXPORT_TYPE = "excel"
+EXPORT_TYPE = "csv"

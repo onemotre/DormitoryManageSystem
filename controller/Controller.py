@@ -1,3 +1,4 @@
+import os.path
 from dataclasses import asdict, fields
 from typing import List, Any
 
@@ -6,6 +7,7 @@ from database.queries import CRUD
 from database.models import *
 from utils.logs import Data_Logger_history as Logger
 from utils.errors import *
+from config import EXPORT_TYPE, EXPORT_DIR_NAME
 
 
 def check_tablename(name: str) -> bool:
@@ -90,6 +92,22 @@ class Controller:
         room_info = self.crud.read_info(table_name=self.tablename)
         return room_info
 
+    def file_output(self):
+        if not os.path.exists(EXPORT_DIR_NAME):
+            os.makedirs(EXPORT_DIR_NAME, exist_ok=True)
+        if EXPORT_TYPE not in {"csv", "excel", "json", "txt"}:
+            raise TableExportError(ValueError(), EXPORT_TYPE, Logger)
+        if EXPORT_TYPE == "csv":
+            self.crud.export_to_csv(self.tablename)
+        elif EXPORT_TYPE == "excel":
+            self.crud.export_to_excel(self.tablename)
+        elif EXPORT_TYPE == "json":
+            self.crud.export_to_json(self.tablename)
+        elif EXPORT_TYPE == "txt":
+            self.crud.export_to_txt(self.tablename)
+        else:
+            raise TableExportError(ValueError(), EXPORT_TYPE, Logger)
+
 
 if __name__ == "__main__":
     test_data = RoomData(room_number="471", capacity=2)
@@ -121,3 +139,9 @@ if __name__ == "__main__":
         print(res)
     except (TableKeyError, TableNameError) as e:
         print("no data")
+
+    try:
+        # 导出为excel表格
+        test_controller.file_output()
+    except TableExportError as e:
+        print("failed to export, details in Data_Logger.log")
