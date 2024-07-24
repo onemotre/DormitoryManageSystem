@@ -8,7 +8,6 @@ from controller import Controller
 from database.models import *
 
 
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -52,8 +51,8 @@ class MainWindow(QMainWindow):
         delete_button.clicked.connect(lambda: self.delete_data(tab_name))
         button_layout.addWidget(delete_button)
 
-        search_button = QPushButton('Search Data')
-        search_button.clicked.connect(lambda: self.search_data(tab_name))
+        search_button = QPushButton('Export Data')
+        search_button.clicked.connect(lambda: self.export_data(tab_name))
         button_layout.addWidget(search_button)
 
         hlayout = QHBoxLayout()
@@ -88,16 +87,23 @@ class MainWindow(QMainWindow):
             self.load_data(tab_name)
 
     def update_data(self, tab_name):
-        # Implement update data logic
-        pass
+        dialog = DataEntryDialog(tab_name)
+        if dialog.exec_():
+            data = dialog.get_data()
+            dataclass_instance = dict2dataclass(data, tablename_datatype[tab_name])
+            self.controller.update_instance(dataclass_instance)
+            self.load_data(tab_name)
 
     def delete_data(self, tab_name):
-        # Implement delete data logic
-        pass
+        dialog = DataEntryDialog(tab_name)
+        if dialog.exec_():
+            data = dialog.get_data()
+            dataclass_instance = dict2dataclass(data, tablename_datatype[tab_name])
+            self.controller.delete_instance(dataclass_instance)
+            self.load_data(tab_name)
 
-    def search_data(self, tab_name):
-        # Implement search data logic
-        pass
+    def export_data(self, tab_name):
+        self.controller.file_output()
 
 
 if __name__ == "__main__":

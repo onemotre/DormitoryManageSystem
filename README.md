@@ -6,12 +6,13 @@
 
 ### 1.0 项目特点
 
-1. **使用`sqlalchemy`进行数据库的操作**:使代码可与多种 SQL 数据库（PostgreSQL, MySQL, SQLite, Oracle, MS SQL Server）通信，详见[<queries.py>](####queries.py)
-2. **数据库自动创建：**database中实现了检查url链接的数据库是否存在，如果不存在会自动创建，详见[<database.py>](####database.py)
-3. **使用`errors`进行代码报错管理：**使代码稳定性提高，避免某些特殊错误导致程序退出，同时更方便出问题的时候进行问题定位分析，详见[<logs.py>](####logs.py)
-4. **使用`Logs`进行日志记录：**使得代码可溯源，包括随时记录用户对数据库的操作，对报错信息的记录，详见[<日志样例展示>](###日志样例展示)
-5. **使用Qt作为项目前端：**使用`Qt5`作为项目前端，使数据可视化更加清晰
-6. **使用`git`进行项目管理：**使用`git`作为项目管理工具，可以查询commit
+1. **使用`sqlalchemy`进行数据库的操作**:SQLAlchemy 是一个 Python 编程语言中非常流行的 SQL 工具包和对象关系映射器（ORM）,使代码可与多种 SQL 数据库（PostgreSQL, MySQL, SQLite, Oracle, MS SQL Server）通信，详见[<queries.py>](####queries.py)
+2. **数据库自动创建：** database中实现了检查url链接的数据库是否存在，如果不存在会自动创建，详见[<database.py>](####database.py)
+3. **数据库文件导出为多格式文件：** 支持导出格式有csv,json,excel,txt,详见[<controller.py>](####controller.py)
+4. **使用`errors`进行代码报错管理：** 使代码稳定性提高，避免某些特殊错误导致程序退出，同时更方便出问题的时候进行问题定位分析，详见[<logs.py>](####logs.py)，效果图:[<Data_Logger.log>](###日志样例展示)
+5. **使用`Logs`进行日志记录：** 使得代码可溯源，包括随时记录用户对数据库的操作，对报错信息的记录，详见[<日志样例展示>](###日志样例展示)
+6. **使用Qt作为项目前端：** 使用`Qt5`作为项目前端，使数据可视化更加清晰，详见[<Qt界面展示>](###Qt界面展示)
+7. **使用`git`进行项目管理：** 使用`git`作为项目管理工具，可以查询commit。[<github link>](https://github.com/onemotre/DormitoryManageSystem)
 
 ### 1.1 项目环境
 
@@ -61,6 +62,16 @@
       source ./DormitoryManageSystem.sql
       ```
 
+
+### 1.2 代码运行说明
+
+基可以运行对应代码中`if __name__ == "__main__"` 中进行运行
+
+- database/database.py
+- controller/Controller.py
+- view/MainWindwo.py
+
+主程序在main.py中可以运行
 
 ## 二、完成代码
 
@@ -150,7 +161,7 @@
       main()
   ```
   
-  
+  ，
 
 ### 2.2 database/
 
@@ -524,9 +535,233 @@ class CRUD:
             session.close()
 ```
 
+### 2.3 controlloer/
+
+#### Controller.py
+
+```python
+from typing import List, Any, Type
+
+import models
+from database.queries import CRUD
+from database.models import *
+from utils.logs import Data_Logger_history as Logger
+from utils.errors import *
+from config import EXPORT_TYPE, EXPORT_DIR_NAME
 
 
-### 2.3 utils/
+def check_tablename(tablename: str):
+    if tablename not in tables_list:
+        return False
+    return True
+
+
+class Controller:
+    def __init__(self, tablename: str):
+        self.crud = CRUD()
+        self.tablename = tablename
+        self.dataclass_type = None
+        self.data_fields = None
+        self.status = False
+        self.check_status()
+
+        self.data_info = self.read_data_info()
+        self.added_instance = []
+
+    def check_status(self) -> bool:
+        try:
+            if not check_tablename(self.tablename):
+                self.status = False
+                raise TableNameError(ValueError(), f"{self.tablename}", Logger)
+            self.dataclass_type = tablename_datatype.get(self.tablename)
+            if self.dataclass_type is None:
+                self.status = False
+                raise TableNameError(KeyError(), f"{self.tablename}", Logger)
+            if not hasattr(self.dataclass_type, '__dataclass_fields__'):
+                self.status = False
+                raise TableValueError(ValueError(), f"wrong dataclass type", Logger)
+            self.data_fields = [field.name for field in fields(self.dataclass_type)]
+            self.status = True
+        except (TableNameError, TableValueError) as e:
+            Logger.error(f"access {self.tablename} error: {e}")
+            return False
+        return True
+
+    def change_tablename(self, tablename: str):
+        old_tablename = self.tablename
+        self.tablename = tablename
+        try:
+            if self.check_status():
+                raise TableNameError(ValueError(), f"{tablename}", Logger)
+        except TableNameError as e:
+            Logger.warning(f"change tablename {old_tablename} error: {e}")
+
+    def generate_id(self, table_name: str) -> int:
+        first_id = models.first_table_dict[table_name]
+        size = self.crud.read_info(table_name)
+        return first_id + size
+
+    def clean_data(self, data: Any):
+        """
+        Clean the data before inserting it into the database.
+        """
+        if not is_dataclass(data):
+            raise TableKeyError(ValueError(), self.tablename, Logger)
+
+        for field in fields(data):
+            value = getattr(data, field.name)
+            if field.type == Optional[datetime]:
+                if isinstance(value, str) and value:
+                    try:
+                        setattr(data, field.name, datetime.fromisoformat(value))
+                    except ValueError:
+                        raise TableValueError(ValueError(), f"Incorrect date format for {field.name}", Logger)
+                elif value is None or value == '':
+                    setattr(data, field.name, datetime.now())
+            elif field.type == int:
+                if value == '' or value is None:
+                    setattr(data, field.name, 0)
+            elif field.type == str:
+                if value is None:
+                    setattr(data, field.name, '')
+
+    def add_instance(self, data: Any) -> None:
+        if self.status is not True:
+            raise TableNameError(KeyError(), self.tablename, Logger)
+        if 'id' in self.data_fields:
+            data.id = self.generate_id(self.tablename)
+
+        # 数据清理
+        self.clean_data(data)
+
+        self.crud.create(self.tablename, asdict(data))
+        self.added_instance.append(data)
+        Logger.info(f"{__name__} | {self.tablename} Add: {data}")
+
+    def delete_instance(self, fileter: dict):
+        if self.status is not True:
+            raise TableNameError(KeyError(), self.tablename, Logger)
+        for key in fileter.keys():
+            if key not in self.data_fields:
+                raise TableKeyError(KeyError(), key, Logger)
+        self.crud.delete(self.tablename, fileter)
+        Logger.info(f"{__name__} | {self.tablename} Remove: [{fileter.keys()} : {fileter.values()}]")
+
+    def search_instance(self, fileter: dict):
+        if self.status is not True:
+            raise TableNameError(KeyError(), self.tablename, Logger)
+        for key in fileter.keys():
+            if key not in self.data_fields:
+                raise TableKeyError(KeyError(), key, Logger)
+        res = self.crud.read(self.tablename, fileter)
+        return res
+
+    def update_instance(self, fileter: dict, data: dict):
+        if self.status is not True:
+            raise TableNameError(KeyError(), self.tablename, Logger)
+        update_info = dict()
+        error_keys = []
+
+        for filter_keys in fileter.keys():
+            if filter_keys not in self.data_fields:
+                raise TableKeyError(KeyError(), filter_keys, Logger)
+            if not self.crud.exists(self.tablename, {filter_keys: fileter[filter_keys]}):
+                error_info = str({filter_keys: fileter[filter_keys]}) + " in " + self.tablename + " can not be update"
+                raise TableKeyError(KeyError(), error_info, Logger)
+        for key in data.keys():
+            if key not in self.data_fields:
+                error_keys.append(key)
+            else:
+                update_info[key] = data[key]
+
+        self.crud.update(self.tablename, fileter, update_info)
+        if error_keys is not None and len(error_keys) > 0:
+            raise TableKeyError(KeyError(), error_keys, Logger)
+
+    def read_data_info(self):
+        if self.status is not True:
+            raise TableNameError(KeyError(), self.tablename, Logger)
+        room_info = self.crud.read_info(table_name=self.tablename)
+        return room_info
+
+    def file_output(self):
+        if not os.path.exists(EXPORT_DIR_NAME):
+            os.makedirs(EXPORT_DIR_NAME, exist_ok=True)
+        if EXPORT_TYPE not in {"csv", "excel", "json", "txt"}:
+            raise TableExportError(ValueError(), EXPORT_TYPE, Logger)
+        if EXPORT_TYPE == "csv":
+            self.crud.export_to_csv(self.tablename)
+        elif EXPORT_TYPE == "excel":
+            self.crud.export_to_excel(self.tablename)
+        elif EXPORT_TYPE == "json":
+            self.crud.export_to_json(self.tablename)
+        elif EXPORT_TYPE == "txt":
+            self.crud.export_to_txt(self.tablename)
+        else:
+            raise TableExportError(ValueError(), EXPORT_TYPE, Logger)
+
+    def get_data(self):
+        data = self.crud.get_all(self.tablename)
+        return [row._asdict() for row in data]
+
+    def get_fields(self):
+        return self.data_fields
+
+
+if __name__ == "__main__":
+    # 数据测试
+    test_data = RoomData(room_number="471", capacity=2)
+    test_students = [
+        StudentData(name='students1', room_id=10002, age=18),
+        StudentData(name='students2', room_id=10002, age=19),
+        StudentData(name='students3', room_id=10002, age=17),
+        StudentData(name='students4', room_id=10002, age=16),
+        StudentData(name='students5', room_id=10002, age=15),
+        StudentData(name='students6', room_id=10002, age=18),
+        StudentData(name='students7', room_id=10002, age=20),
+    ]
+    test_admini = Admin()
+    test_controller = Controller("students")
+    # try:
+    #     # 更改数据测试
+    #     test_controller.update_instance({'id': 10003, 'room_number': '472', 'capacity': 2, 'occupants': 0},
+    #                                     {'capacity': 3})
+    #     print(test_controller.search_instance({'id': 10003}))
+    # except TableKeyError as e:
+    #     # 异常捕获测试
+    #     print("hello")
+    #
+    try:
+        # 增加数据测试
+        for item in test_students:
+            test_controller.add_instance(item)
+    except (TableKeyError, TableNameError) as e:
+        print("add data error: details in Data_Logger.log")
+    #
+    # try:
+    #     # 删除数据测试
+    #     test_controller.delete_instance({'capacity': 3})
+    # except (TableKeyError, TableNameError) as e:
+    #     print("delete data error: details in Data_Logger.log")
+    #
+    # try:
+    #     # 查询数据测试
+    #     res = test_controller.search_instance({"room_number": "*"})
+    #     print(res)
+    # except (TableKeyError, TableNameError) as e:
+    #     print("no data")
+    #
+    # try:
+    #     # 导出为excel表格
+    #     test_controller.file_output()
+    # except TableExportError as e:
+    #     print("failed to export, details in Data_Logger.log")
+    print(test_controller.get_data())
+```
+
+
+
+### 2.4 utils/
 
 #### logs.py
 
@@ -607,7 +842,180 @@ class TableOperationError(Exception):
         logger.error(f"TableOperationError: failed operator {operator} | {e}")
 ```
 
-### 2.4 view/
+### 2.5 view/
+
+#### MainWindow.py
+
+```python
+import sys
+
+from PyQt5.QtWidgets import QMainWindow, QApplication, QPushButton, QVBoxLayout, QWidget, QTableWidget, \
+    QTableWidgetItem, QTabWidget, QHBoxLayout
+
+from view.DataEntryDialog import DataEntryDialog
+from controller import Controller
+from database.models import *
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle('Room Management System')
+        self.controller = Controller.Controller("students")
+
+        self.tabs = QTabWidget()
+        self.table_widgets = {}
+
+        self.initUI()
+
+    def initUI(self):
+        self.tabs.currentChanged.connect(self.tab_changed)
+
+        # Initialize tabs
+        for tab_name in tables_list:
+            tab = QWidget()
+            self.init_tab(tab, tab_name)
+            self.tabs.addTab(tab, tab_name)
+
+        self.setCentralWidget(self.tabs)
+
+    def init_tab(self, tab, tab_name):
+        layout = QVBoxLayout()
+
+        table_widget = QTableWidget()
+        self.table_widgets[tab_name] = table_widget
+        layout.addWidget(table_widget)
+
+        button_layout = QVBoxLayout()
+
+        add_button = QPushButton('Add Data')
+        add_button.clicked.connect(lambda: self.add_data(tab_name))
+        button_layout.addWidget(add_button)
+
+        update_button = QPushButton('Update Data')
+        update_button.clicked.connect(lambda: self.update_data(tab_name))
+        button_layout.addWidget(update_button)
+
+        delete_button = QPushButton('Delete Data')
+        delete_button.clicked.connect(lambda: self.delete_data(tab_name))
+        button_layout.addWidget(delete_button)
+
+        search_button = QPushButton('Export Data')
+        search_button.clicked.connect(lambda: self.export_data(tab_name))
+        button_layout.addWidget(search_button)
+
+        hlayout = QHBoxLayout()
+        hlayout.addLayout(layout)
+        hlayout.addLayout(button_layout)
+
+        tab.setLayout(hlayout)
+        self.load_data(tab_name)
+
+    def tab_changed(self):
+        tab_name = self.tabs.tabText(self.tabs.currentIndex())
+        self.controller.change_tablename(self.tabs.tabText(self.tabs.currentIndex()))
+        self.load_data(tab_name)
+
+    def load_data(self, tab_name):
+        data = self.controller.get_data()
+        table_widget = self.table_widgets[tab_name]
+        table_widget.setRowCount(len(data))
+        table_widget.setColumnCount(len(data[0]) if data else 0)
+        table_widget.setHorizontalHeaderLabels(data[0].keys() if data else [])
+
+        for row_index, row_data in enumerate(data):
+            for col_index, (key, value) in enumerate(row_data.items()):
+                table_widget.setItem(row_index, col_index, QTableWidgetItem(str(value)))
+
+    def add_data(self, tab_name):
+        dialog = DataEntryDialog(tab_name)
+        if dialog.exec_():
+            data = dialog.get_data()
+            dataclass_instance = dict2dataclass(data, tablename_datatype[tab_name])
+            self.controller.add_instance(dataclass_instance)
+            self.load_data(tab_name)
+
+    def update_data(self, tab_name):
+        dialog = DataEntryDialog(tab_name)
+        if dialog.exec_():
+            data = dialog.get_data()
+            dataclass_instance = dict2dataclass(data, tablename_datatype[tab_name])
+            self.controller.update_instance(dataclass_instance)
+            self.load_data(tab_name)
+
+    def delete_data(self, tab_name):
+        dialog = DataEntryDialog(tab_name)
+        if dialog.exec_():
+            data = dialog.get_data()
+            dataclass_instance = dict2dataclass(data, tablename_datatype[tab_name])
+            self.controller.delete_instance(dataclass_instance)
+            self.load_data(tab_name)
+
+    def export_data(self, tab_name):
+        self.controller.file_output()
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    main_window = MainWindow()
+    main_window.show()
+    sys.exit(app.exec_())
+
+```
+
+#### DataEntryDialog.py
+
+```python
+from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QHBoxLayout, QDialog, QLineEdit, QFormLayout
+
+from database.models import *
+
+
+class DataEntryDialog(QDialog):
+    def __init__(self, tablename, parent=None):
+        super(DataEntryDialog, self).__init__(parent)
+        self.setWindowTitle(f"Edit {tablename}")
+
+        self.layout = QVBoxLayout()
+
+        self.form_layout = QFormLayout()
+        self.inputs = {}
+        self.datatype = tablename_datatype[tablename]
+        for filed in fields(self.datatype):
+            line_edit = QLineEdit(self)
+            line_edit.setPlaceholderText(filed.name)
+            self.layout.addWidget(line_edit)
+            self.inputs[filed.name] = line_edit
+
+        self.layout.addLayout(self.form_layout)
+
+        self.button_box = QHBoxLayout()
+        self.confirm_button = QPushButton("Confirm")
+        self.confirm_button.clicked.connect(self.confirm)
+        self.button_box.addWidget(self.confirm_button)
+        self.layout.addLayout(self.button_box)
+
+        self.setLayout(self.layout)
+        self.data = None
+
+    def confirm(self):
+        data = {}
+        for field in fields(self.datatype):
+            value = self.inputs[field.name].text()
+            if field.type == int or field.type == Optional[int]:
+                value = int(value) if value else 0
+            elif field.type == str or field.type == Optional[str]:
+                value = value if value else ''
+            elif field.type == Optional[datetime]:
+                value = datetime.fromisoformat(value) if value else None
+            data[field.name] = value
+        self.data = data
+        self.accept()
+
+    def get_data(self):
+        return self.data
+
+```
 
 
 
@@ -624,3 +1032,8 @@ class TableOperationError(Exception):
 
 ### Qt界面展示
 
+![qt_students](./pic/qt_students.png)
+
+![rooms](./pic/qt_rooms.png)
+
+![add_data](./pic/qt_add_data.png)
