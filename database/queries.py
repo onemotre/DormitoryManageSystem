@@ -3,7 +3,7 @@ import pandas as pd
 
 from typing import Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import MetaData, Table
+from sqlalchemy import MetaData, Table, table
 from database.database import SessionLocal, get_engine
 from sqlalchemy.exc import IntegrityError
 
@@ -29,13 +29,13 @@ class CRUD:
         self.metadata.reflect(self.engine)
 
     def create(self, table_name: str, data: dict):
-        table = self.metadata.tables.get(table_name)
-        if table is None:
+        selected_table = self.metadata.tables.get(table_name)
+        if selected_table is None:
             raise TableValueError(ValueError(), f"Table {table_name} does not exist", Logger)
 
         with self.engine.connect() as conn:
             try:
-                insert_stmt = table.insert().values(data)
+                insert_stmt = selected_table.insert().values(data)
                 conn.execute(insert_stmt)
                 conn.commit()
             except IntegrityError as e:
@@ -95,45 +95,60 @@ class CRUD:
             return result.fetchone() is not None
 
     def read_info(self, table_name: str):
-        table = self.metadata.tables.get(table_name)
-        if table is None:
+        select_dat = self.metadata.tables.get(table_name)
+        if select_dat is None:
             raise TableValueError(ValueError(), f"Table {table_name} does not exist", Logger)
 
         with self.engine.connect() as conn:
-            select_stmt = table.select()
-            result = conn.execute(select_stmt)
+            selected_table = select_dat.select()
+            result = conn.execute(selected_table)
             count = result.rowcount
             return count
 
     def export_to_excel(self, tablename: str):
         filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.xlsx")
         with pd.ExcelWriter(filename) as writer:
-            table = self.metadata.tables[tablename]
-            query = table.select()
+            selected_table = self.metadata.tables[tablename]
+            query = selected_table.select()
             df = pd.read_sql(query, self.engine)
             df.to_excel(writer, sheet_name=tablename, index=False)
             Logger.info(f"Export to Excel {filename}")
 
     def export_to_csv(self, tablename: str):
         filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.csv")
-        table = self.metadata.tables[tablename]
-        query = table.select()
+        selected_table = self.metadata.tables[tablename]
+        query = selected_table.select()
         df = pd.read_sql(query, self.engine)
         df.to_csv(filename, index=False)
         Logger.info(f"Export to CSV {filename}")
 
     def export_to_txt(self, tablename: str):
         filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.txt")
-        table = self.metadata.tables[tablename]
-        query = table.select()
+        selected_table = self.metadata.tables[tablename]
+        query = selected_table.select()
         df = pd.read_sql(query, self.engine)
         df.to_csv(filename, index=False, sep='\t')
         Logger.info(f"Export to TXT {filename}")
 
     def export_to_json(self, tablename: str):
         filename = os.path.join(EXPORT_DIR_NAME, f"{tablename}.json")
-        table = self.metadata.tables[tablename]
-        query = table.select()
+        selected_table = self.metadata.tables[tablename]
+        query = selected_table.select()
         df = pd.read_sql(query, self.engine)
         df.to_json(filename, orient='records')
         Logger.info(f"Export to JSON {filename}")
+
+    def get_all(self, table_name: str):
+        if table_name not in self.metadata.tables:
+            raise TableValueError(ValueError(), f"Table {table_name} does not exist", Logger)
+        session = SessionLocal()
+        selected_table = self.metadata.tables.get(table_name)
+        try:
+            res = session.query(selected_table).all()
+            session.commit()
+            return res
+        except Exception as e:
+            session.rollback()
+            raise TableOperationError(e, "access data", Logger)
+        finally:
+            session.close()

@@ -1,24 +1,26 @@
-from typing import Optional, List, Dict
+import dataclasses
+from typing import Optional, List, Dict, Any, Type, TypeVar
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import Column, Integer, String, Date, ForeignKey
 from sqlalchemy.orm import relationship
 
 Base = declarative_base()
+T = TypeVar('T')
 
-tables = {"students", "rooms", "admins", "assignments"}
+tables_list = ["students", "rooms", "admins", "assignments"]
 first_table_dict = {"students": 10000, "rooms": 10000, "admins": 0}
 
 
 @dataclass
 class StudentData:
     name: str
-    room_id: str
+    room_id: int
     id: Optional[int] = None
     age: Optional[int] = 0
     gender: Optional[str] = "none"
-    enrolled_date: Optional[datetime] = None
+    enrollment_date: Optional[datetime] = None
 
 
 @dataclass
@@ -45,12 +47,12 @@ class AssignmentData:
     assigned_date: Optional[datetime] = None
 
 
-tablename_datatype = dict[str, type[Base]]({
+tablename_datatype: Dict[str, Type]= {
     "students": StudentData,
     "rooms": RoomData,
-    "admin": AdminData,
+    "admins": AdminData,
     "assignments": AssignmentData
-})
+}
 
 
 class Student(Base):
@@ -62,9 +64,6 @@ class Student(Base):
     gender = Column(String(10))
     room_id = Column(Integer, ForeignKey('rooms.id'))
     enrollment_date = Column(Date)
-
-
-
 
 
 class Room(Base):
@@ -92,3 +91,16 @@ class Assignment(Base):
     student_id = Column(Integer, ForeignKey('students.id'))
     room_id = Column(Integer, ForeignKey('rooms.id'))
     assigned_date = Column(Date)
+
+
+def dict2dataclass(data: dict, dataclass_type: Type[Base]):
+    fields_info = {field.name: field.type for field in fields(dataclass_type)}
+    for key, value in data.items():
+        expected_type = fields_info.get(key)
+        if expected_type == int or expected_type == Optional[int]:
+            data[key] = int(value) if value else 0
+        elif expected_type == Optional[str] or expected_type == str:
+            data[key] = value if value else ''
+        elif expected_type == Optional[datetime]:
+            data[key] = datetime.fromisoformat(value) if value else None
+    return dataclass_type(**data)
